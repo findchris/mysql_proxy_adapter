@@ -33,7 +33,7 @@ module ActiveRecord
         mysql = Mysql.init
         mysql.ssl_set(config[:sslkey], config[:sslcert], config[:sslca], config[:sslcapath], config[:sslcipher]) if config[:sslca] || config[:sslkey]
 
-        ConnectionAdapters::MysqlReplicationAdapter.new(mysql, logger, [host, username, password, database, port, socket], config)
+        ConnectionAdapters::MysqlProxyAdapter.new(mysql, logger, [host, username, password, database, port, socket], config)
       end
       
       ###
@@ -92,35 +92,36 @@ module ActiveRecord
     class MysqlProxyAdapter < MysqlAdapter      
       
       ADAPTER_NAME = 'MySQLProxy'.freeze     
+      
+      def initialize(connection, logger, connection_options, config)
+        @named_connections = nil
+        @retries = config[:retries]
+        super(connection, logger, connection_options, config)
+      end
 
       def adapter_name #:nodoc:
         ADAPTER_NAME
       end
-
-      # the magic load_balance method
-      def load_balance_query
+      
+      def use_named(connection)
         old_connection = @connection
-        @connection = select_clone
+        @connection = connection
         yield
       ensure
         @connection = old_connection
       end
 
-      # choose a random clone to use for the moment
-      def select_clone
-        # if we happen not to be connected to any clones, just use the master
-        return @master if @clones.nil? || @clones.empty? 
-        # return a random clone
-        return @clones[rand(@clones.size)]
+      def named_connection_option(option = nil)
+        # pull the :use_db option if a Hash, else option is assumed to be the connection name
+        option = option.is_a?(Hash) ? option[:use_db] : option
+
+        named_connection = @named_connections[option]]
+        named_connection || @connection
       end
 
       def disconnect!
-        @master.close rescue nil
-        if @clones
-          @clones.each do |clone|
-            clone.close rescue nil
-          end
-        end
+        @connection.close rescue nil
+        @named_connections.each { |conn| conn.close rescue nil } if @named_connections
       end
 
 
@@ -154,80 +155,53 @@ module ActiveRecord
 
 
       private
-      # Create the array of clone Mysql instances. Note that the instances
-      # actually don't correspond to the clone specs at this point. We're 
-      # just getting Mysql object instances we can connect with later.
-      def init_clones
-        @clones = (@config[:clones] || @config[:slaves]).map{Mysql.init}
-      end
     
-      # Given a Mysql object and connection options, call #real_connect
-      # on the connection. 
-      def setup_connection(conn, conn_opts)
-        # figure out if we're going to be doing any different
-        # encoding. if so, set it.
-        encoding = @config[:encoding]
-        if encoding
-          conn.options(Mysql::SET_CHARSET_NAME, encoding) rescue nil
+        def connect
+          # set up the primary connection
+          setup_connection(@connection, @connection_options)            
+          setup_named_connections
         end
         
-        # set the ssl options
-        conn.ssl_set(@config[:sslkey], @config[:sslcert], @config[:sslca], @config[:sslcapath], @config[:sslcipher]) if @config[:sslkey]
-        
-        # do the actual connect
-        conn.real_connect(*conn_opts)
-        
-        # swap the current connection for the connection we just set up
-        old_conn, @connection = @connection, conn
-        
-        # set these options!
-        execute("SET NAMES '#{encoding}'") if encoding
-        # By default, MySQL 'where id is null' selects the last inserted id.
-        # Turn this off. http://dev.rubyonrails.org/ticket/6778
-        execute("SET SQL_AUTO_IS_NULL=0")
-        
-        # swap the old current connection back into place
-        @connection = old_conn
-      end
-    
-      def connect
-        # if this is our first time in this method, then master will be
-        # nil, and should get set.
-        @master = @connection unless @master
-
-        # set up the master connection
-        setup_connection(@master, @connection_options)
-                  
-        clone_config = @config[:clones] || @config[:slaves]
-
-        # if clones are specified, then set up those connections
-        if clone_config
-          # create the clone connections if they don't already exist
-          init_clones unless @clones
+        def setup_named_connection      
+          named_connections_config = @config[:named_connections]
           
-          # produce a pairing of connection options with an existing clone
-          clones_with_configs = @clones.zip(clone_config)
-          
-          clones_with_configs.each do |clone_and_config|
-            clone, config = clone_and_config
+          return if named_connections_config.blank?
+
+          # create the named connections if they don't already exist
+          initialize_named_connections unless @named_connections
             
-            # Cause the individual clone Mysql instances to (re)connect
-            # Note - the instances aren't being replaced. This is critical,
-            # as otherwise the current connection could end up pointed at a 
-            # bad connection object in the case of a failure.
-            setup_connection(clone, 
-              [
-                config["host"], 
-                config["username"], config["password"], 
-                config["database"], config["port"], config["socket"]
-              ]
-            )
-          end
-        else
-          # warning, no slaves specified.
-          warn "Warning: MysqlReplicationAdapter in use, but no slave database connections specified."
+          @named_connections.zip(named_connections_config).each do |conn, config|
+            setup_connection(conn, [config["host"], config["username"], config["password"], config["database"], config["port"], config["socket"]])
+          end          
         end
-      end
+        
+        # call #real_connect on the given connection with the passed in options. 
+        def setup_connection(conn, conn_opts)
+          encoding = @config[:encoding]
+          if encoding
+            conn.options(Mysql::SET_CHARSET_NAME, encoding) rescue nil
+          end
+
+          if @config[:sslca] || @config[:sslkey]
+            conn.ssl_set(@config[:sslkey], @config[:sslcert], @config[:sslca], @config[:sslcapath], @config[:sslcipher])
+          end
+          
+          conn.real_connect(*conn_opts)
+          
+          # reconnect must be set after real_connect is called, because real_connect sets it to false internally
+          conn.reconnect = !!@config[:reconnect] if conn.respond_to?(:reconnect=)
+
+          old_conn, @connection = @connection, conn
+          execute("SET NAMES '#{encoding}'") if encoding
+          # By default, MySQL 'where id is null' selects the last inserted id.
+          # Turn this off. http://dev.rubyonrails.org/ticket/6778
+          execute("SET SQL_AUTO_IS_NULL=0")
+          @connection = old_conn
+        end
+        
+        def initialize_named_connections
+          @named_connections = @config[:named_connections].map{Mysql.init}
+        end
       
     end
   end

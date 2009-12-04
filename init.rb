@@ -1,1 +1,1 @@
-require 'mysql_replication_adapter'
+require 'mysql_proxy_adapter'
