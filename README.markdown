@@ -33,7 +33,7 @@ Rails::Initializer.run do |config|
 Slaves are configured on a by-environment basis, so pick any of your existing environments (development, production, etc.). Change the "driver" entry to "mysql_replication". Then, add a clones section like the one seen below.
 
 production:
-  adapter: mysql_proxy_adapter
+  adapter: mysql_proxy
   database: db_name
   username: root
   password:

@@ -1,3 +1,4 @@
+require 'active_record/connection_adapters/mysql_adapter'
 
 module ActiveRecord
   
@@ -36,31 +37,45 @@ module ActiveRecord
         ConnectionAdapters::MysqlProxyAdapter.new(mysql, logger, [host, username, password, database, port, socket], config)
       end
       
+      def use_named(options)
+        connection.use_named(connection.named_connection_option(options)) do
+          yield
+        end
+      end
+      
       ###
-      # Override ActiveRecord::Base methods to optionally use a named connection.
-      def find_every(options)
-        connection.use_named(named_connection_option(options)) do
-          super(options)
+      # Chain ActiveRecord::Base methods to optionally use a named connection.
+      def find_every_with_named_connection(options)
+        puts "find_every_with_named_connection"
+        use_named(options) do
+          find_every_without_named_connection(options)
         end
       end
+      alias_method_chain :find_every, :named_connection
 
-      def find_by_sql(sql, *args)
-        connection.use_named(named_connection_option(args.extract_options!)) do
-          super(sql)
+      def find_by_sql_with_named_connection(sql, *args)
+        puts "find_by_sql_with_named_connection"
+        use_named(args.extract_options!) do
+          find_by_sql_without_named_connection(sql)
         end
       end
+      alias_method_chain :find_by_sql, :named_connection
 
-      def count_by_sql(sql, *args)
-        connection.use_named(named_connection_option(args.extract_options!)) do
-          super(sql)
+      def count_by_sql_with_named_connection(sql, *args)
+        puts "count_by_sql_with_named_connection"
+        use_named(args.extract_options!) do
+          count_by_sql_without_named_connection(sql)
         end
       end
+      alias_method_chain :count_by_sql, :named_connection
 
-      def calculate(operation, column_name, options ={})
-        connection.use_named(named_connection_option(options.delete(:use_db))) do
-          super(operation, column_name, options)
+      def calculate_with_named_connection(operation, column_name, options ={})
+        puts "calculate_with_named_connection"
+        use_named(options.delete(:use_db)) do
+          calculate_without_named_connection(operation, column_name, options)
         end
       end
+      alias_method_chain :calculate, :named_connection
       
     end
   end
@@ -105,18 +120,20 @@ module ActiveRecord
       
       def use_named(connection)
         old_connection = @connection
+        puts "connection is now: #{@connection}"
         @connection = connection
         yield
       ensure
         @connection = old_connection
+        puts "connection has returned to: #{@connection}"
       end
 
       def named_connection_option(option = nil)
         # pull the :use_db option if a Hash, else option is assumed to be the connection name
         option = option.is_a?(Hash) ? option[:use_db] : option
 
-        named_connection = @named_connections[option]]
-        named_connection || @connection
+          puts "name = #{option}"
+        option.blank? ? @connection : @named_connections[option.to_sym]        
       end
 
       def disconnect!
@@ -152,31 +169,38 @@ module ActiveRecord
           raise
         end
       end
-
+      
+    
+      def connect
+        # set up the primary connection
+        setup_connection(@connection, @connection_options)            
+        setup_named_connections
+      end
 
       private
-    
-        def connect
-          # set up the primary connection
-          setup_connection(@connection, @connection_options)            
-          setup_named_connections
-        end
         
-        def setup_named_connection      
-          named_connections_config = @config[:named_connections]
+        def setup_named_connections
+          puts "setup_named_connections!!! with config = #{@config[:named_connections]} (#{@config.class}) - #{@config[:master]}"
           
-          return if named_connections_config.blank?
+          named_connections_config = @config[:named_connections].symbolize_keys! rescue return
 
           # create the named connections if they don't already exist
+          puts "initializing named connections"
           initialize_named_connections unless @named_connections
             
-          @named_connections.zip(named_connections_config).each do |conn, config|
+          @named_connections.each do |name, conn|
+            config = named_connections_config[name]
             setup_connection(conn, [config["host"], config["username"], config["password"], config["database"], config["port"], config["socket"]])
-          end          
+          end     
+          
+          puts "done setup_named_connections!"     
         end
         
         # call #real_connect on the given connection with the passed in options. 
         def setup_connection(conn, conn_opts)
+          
+          puts "Setting up connection:  #{conn.inspect} with opts #{conn_opts.inspect}"
+          
           encoding = @config[:encoding]
           if encoding
             conn.options(Mysql::SET_CHARSET_NAME, encoding) rescue nil
@@ -188,6 +212,8 @@ module ActiveRecord
           
           conn.real_connect(*conn_opts)
           
+          puts "Real connect done!"
+          
           # reconnect must be set after real_connect is called, because real_connect sets it to false internally
           conn.reconnect = !!@config[:reconnect] if conn.respond_to?(:reconnect=)
 
@@ -197,10 +223,12 @@ module ActiveRecord
           # Turn this off. http://dev.rubyonrails.org/ticket/6778
           execute("SET SQL_AUTO_IS_NULL=0")
           @connection = old_conn
+          
+          puts "Done with setup_connection()"
         end
         
         def initialize_named_connections
-          @named_connections = @config[:named_connections].map{Mysql.init}
+          @config[:named_connections].each_key {|name| @named_connections ||= {}; @named_connections[name] = Mysql.init}
         end
       
     end
