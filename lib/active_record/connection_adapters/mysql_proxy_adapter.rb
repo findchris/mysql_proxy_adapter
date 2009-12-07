@@ -126,7 +126,8 @@ module ActiveRecord
         # pull the :use_db option if a Hash, else option is assumed to be the connection name
         option = option.is_a?(Hash) ? option[:use_db] : option
 
-        option.blank? ? @connection : @named_connections[option.to_sym]        
+        named_connection =  @named_connections[option.to_sym] unless option.blank?
+        named_connection || @connection
       end
 
       def disconnect!
