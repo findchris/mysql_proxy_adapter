@@ -20,7 +20,7 @@ script/plugin install git://github.com/findchris/mysql_proxy_adapter.git
 
 2. Add named connections to your database.yml.
 -------------------
-Be sure to set the 'adapter' attribute to 'mysql_proxy', and then add a 'named_connections' attribute containing your named connection as in the below example:
+Be sure to set the 'adapter' attribute to 'mysql_proxy', and then add a 'named_connections' attribute containing your named connections as in the below example:
 
     production:
       adapter: mysql_proxy
