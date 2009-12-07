@@ -3,6 +3,11 @@ require 'active_record/connection_adapters/mysql_adapter'
 module ActiveRecord
   
   class Base    
+    
+    def with_database(named_connection)
+      self.class.with_database(named_connection, &block)
+    end
+    
     class << self
       
       VALID_FIND_OPTIONS << :use_db
@@ -45,6 +50,12 @@ module ActiveRecord
             yield
           end
         else
+          yield
+        end
+      end
+      
+      def with_database(named_connection)
+        use_named(named_connection) do
           yield
         end
       end
