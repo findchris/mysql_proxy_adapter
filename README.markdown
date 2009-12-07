@@ -20,8 +20,7 @@ script/plugin install git://github.com/findchris/mysql_proxy_adapter.git
 
 2. Add named connections to your database.yml.
 -------------------
-Slaves are configured on a by-environment basis, so pick any of your existing environments (development, production, etc.). Change the "driver" entry to "mysql_replication". Then, add a clones section like the one seen below.
-
+Be sure to set the 'adapter' attribute to 'mysql_proxy', and then add a 'named_connections' attribute containing your named connection as in the below example:
 
 production:
   adapter: mysql_proxy
@@ -53,17 +52,16 @@ production:
       retries: 2
       pool: 5
 
-And so on. Add as many named connnections as you'd like. There are no built-in limits.
-
-And that's it. It's configured now. 
 
 Usage
 ================
-There are a number of ways to make use of the MysqlProxyAdapter's slave-balancing capabilities. The simplest way is to pass a new option to ActiveRecord::Base#find. The option is called :use_slave, and it should => true when you want to send the query to a slave. For instance:
+Obviously, your MySQL Proxy configuration will direct read/writes to your slaves/master respectively.  Should you want to explicitly use one of your named connections instead of letting your MySQL Proxy configuration dictate the database to be queried, you can simple add a ':use_db' query option to any of ActiveRecord's query methods.  Example: 
 
 class Author < ActiveRecord::Base; end;
 
-Author.find(:all, :use_slave => true)
+Author.find(:all, :use_db => :master)
+
+
 
 Credits
 ================
