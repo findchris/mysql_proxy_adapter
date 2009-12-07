@@ -1,7 +1,7 @@
 MysqlProxyAdapter
 =======================
 
-MysqlReplicationAdapter is a simple ActiveRecord database adapter that allows database connection control when using [MySQL Proxy](http://forge.mysql.com/wiki/MySQL_Proxy). 
+MysqlProxyAdapter is a simple ActiveRecord database adapter that allows database connection control when using [MySQL Proxy](http://forge.mysql.com/wiki/MySQL_Proxy). 
 
 
 
