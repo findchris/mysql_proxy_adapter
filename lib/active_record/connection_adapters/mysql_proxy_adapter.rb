@@ -5,6 +5,8 @@ module ActiveRecord
   class Base    
     class << self
       
+      VALID_FIND_OPTIONS << :use_db
+      
       # Establishes a connection to the database that's used by all Active Record objects.
       def mysql_proxy_connection(config) # :nodoc:
         config = config.symbolize_keys
@@ -38,7 +40,11 @@ module ActiveRecord
       end
       
       def use_named(options)
-        connection.use_named(connection.named_connection_option(options)) do
+        if connection.is_a?(ConnectionAdapters::MysqlProxyAdapter)
+          connection.use_named(connection.named_connection_option(options)) do
+            yield
+          end
+        else
           yield
         end
       end
