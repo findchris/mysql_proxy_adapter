@@ -2,9 +2,13 @@ require 'active_record/connection_adapters/mysql_adapter'
 
 module ActiveRecord
   
+  module Calculations #:nodoc:
+    CALCULATIONS_OPTIONS << :use_db
+  end
+  
   class Base    
     
-    def with_database(named_connection)
+    def with_database(named_connection, &block)
       self.class.with_database(named_connection, &block)
     end
     
