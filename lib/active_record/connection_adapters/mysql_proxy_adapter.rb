@@ -153,7 +153,7 @@ module ActiveRecord
 
       def disconnect!
         @connection.close rescue nil
-        @named_connections.each { |conn| conn.close rescue nil } if @named_connections
+        @named_connections.each_value { |conn| conn.close rescue nil } if @named_connections
       end
 
 
